@@ -1,0 +1,627 @@
+---
+title: "Beyond significant"
+subtitle: "A practical introduction  to Bayesian data anlysis"
+author: "Andrew Ellis"
+date: "`r Sys.Date()`"
+output:
+  # xaringan::inf_reader():
+  xaringan::moon_reader:
+    css: [IRC.css, metropolis-fonts]
+    self_contained: true
+    lib_dir: libs
+    nature:
+        highlightStyle: github
+        highlightLines: true
+        countIncrementalSlides: false
+      # countdown: 60000
+---
+
+```{r setup, include=FALSE, message=FALSE, warning=FALSE}
+# options(htmltools.dir.version = FALSE)
+
+knitr::opts_chunk$set(echo = FALSE,
+                      cache = TRUE,
+                      message=FALSE,
+                      warning=FALSE)
+
+library(tidyr)
+library(dplyr)
+library(forcats)
+library(modelr)
+library(purrr)
+library(ggplot2)
+library(ggstance)
+library(ggridges)
+library(patchwork)
+library(brms)
+library(tidybayes)
+
+theme_set(theme_ridges())
+```
+
+```{r, load_refs, echo=FALSE, cache=FALSE}
+library(RefManageR)
+BibOptions(check.entries = FALSE,
+           bib.style = "authoryear",
+           cite.style = 'authoryear',
+           style = "markdown",
+           # max.names = 2,
+           # hyperlink = "to.bib",
+           dashed = FALSE)
+bib <- ReadBib("./references.bib", check = FALSE)
+# bib <- ReadZotero(user = 950911, .params = list(collection = '7JB6KEN9'), delete.file = FALSE)
+```
+
+# Introduction
+- American Statistical Association (ASA) released a statement about p-values `r Cite(bib['lazarASAStatementPValues2016'])`. Among the principles are:
+
+   + P-values can indicate how incompatible the data are with a specified statistical model.
+   + P-values do not measure the probability that the studied hypothesis is true, or the probability that the data were produced by random chance alone.
+
+
+- `r TextCite(bib['greenlandStatisticalTestsValues2016'], .opts = list(max.names = 2))` provide a good discussion of common misinterpretations of p values and confidence intervals.
+   + A confidence interval does not have a 95% chance of containing the true parameter.
+
+???
+the 95% refers only to how often 95% confidence intervals computed from very many studies would contain the true size if all the assumptions used to compute the intervals were correct.
+
+These further assumptions are summarized in what is called a prior distribution, and the resulting intervals are usually called Bayesian posterior (or credible) intervals to distinguish them from confidence intervals
+
+---
+# The Bayesian New Statistics
+
+- `r TextCite(bib['cummingNewStatisticsWhy2014'])` claim that "we need to shift from reliance on NHST to estimation and other preferred techniques.
+
+- `r TextCite(bib['kruschkeBayesianNewStatistics2018'])` advocate that Bayesian methods are better suited to achieve this, for both hypothesis testing and parameter estimation.
+
+- According to `r TextCite(bib['gigerenzerStatisticalRitualsReplication2018'])`, we need to stop relying on NHST, but instead learn to use a statistical toolkit.
+
+- Many reviewers now demand Bayes factors, but Bayesian data analysis is not limited to calculating Bayes factors.
+
+
+???
+- Claim: Bayesian approaches are more direct, more intuitive and more informative than frequentist approaches.
+
+- Bayes factors are controversial
+
+---
+# Bayesian methods
+
+.pull-left[
+🤗
+- more intuitive (quantification of uncertainty)
+- able to provide evidence for/against hypotheses
+- more flexible
+    + cognitive process models `r Cite(bib['leeBayesianCognitiveModeling2013'])`
+    + robust models
+- can include prior knowledge
+- better for multilevel models `r Cite(bib['gelmanDataAnalysisUsing2006'])`
+- based on probability theory (Bayes theorem)
+]
+
+.pull-right[
+😧
+- requires computing power
+- setting priors requires familiarity with probability distributions
+- (ongoing discussion about parameter estimation vs. hypothesis testing. See e.g.  [here](https://statmodeling.stat.columbia.edu/2017/05/04/hypothesis-testing-hint-not-think/) and [here](https://statmodeling.stat.columbia.edu/2011/04/02/so-called_bayes/).)
+]
+
+
+---
+# Some theory
+We will have a brief look at the theoretical background, then dive straight into a practical example.
+
+.pull-left[
+## Key ideas:
+- Parameters are random variables<sup>1</sup>. These are drawn from probability distributions, which reflect our uncertainty about the parameters.
+
+-We update the prior distribution with the likelihood (data) to obtain a posterior distribution.
+]
+
+
+.pull-right[
+```{r}
+ggplot(data = tibble(x = c(-10, 10)), aes(x = x)) +
+  stat_function(fun = dnorm, n = 500, args = list(mean = 0, sd = 2),
+                color = "steelblue4",
+                size = 2) +
+  stat_function(fun = dcauchy, n = 500, args = list(location = 0, scale = 1),
+                color = "steelblue2",
+                size = 2) +
+  labs(title = "Some distributions") +
+  xlab("parameter")
+```
+]
+
+.footnote[
+[1] In contrast to frequentist analysis, in which they are fixed.
+]
+
+---
+# Bayesian workflow
+![](figures/Bayesian-workflow-1.png)
+
+
+???
+- prior predictive distribution:the marginal distribution of the data over the prior
+
+
+---
+# Bayesian workflow
+![](figures/Bayesian-workflow-2.png)
+
+???
+A posterior predictive p-value is a the tail posterior probability for a statistic generated from the model compared to the statistic observed in the data.
+
+
+---
+# Bayesian model comparison
+![](figures/Bayesian-workflow-3.png)
+
+---
+# A hands-on example
+To make this more concrete, we will apply this to the IQ example introduced previously.
+
+Summary: Two groups of people took an IQ test.
+
+Group 1 (N1=47) consumes a "smart drug", and Group 2 (N2=42) is a control group that consumes a placebo `r Cite(bib['kruschkeBayesianEstimationSupersedes2013'])`.
+
+
+---
+
+```{r include=FALSE}
+smart = tibble(IQ = c(101,100,102,104,102,97,105,105,98,101,100,123,105,103,
+                      100,95,102,106,109,102,82,102,100,102,102,101,102,102,
+                      103,103,97,97,103,101,97,104,96,103,124,101,101,100,
+                      101,101,104,100,101),
+            Group = "SmartDrug")
+
+placebo = tibble(IQ = c(99,101,100,101,102,100,97,101,104,101,102,102,100,105,
+                    88,101,100,104,100,100,100,101,102,103,97,101,101,100,101,
+                        99,101,100,100,101,100,99,101,100,102,99,100,99),
+       Group = "Placebo")
+
+TwoGroupIQ <- bind_rows(smart, placebo) %>%
+    readr::write_csv("data/TwoGroupIQ.csv")
+
+TwoGroupIQ <- TwoGroupIQ %>%
+    mutate(Group = fct_relevel(as.factor(Group), "Placebo"))
+```
+
+
+```{r iq-data, message=FALSE, warning=FALSE}
+p_iq_boxplot <- TwoGroupIQ %>%
+   ggplot(aes(x = Group, y = IQ, fill = Group)) +
+    geom_boxplot() +
+    scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) +
+    # scale_y_continuous(breaks = seq(1, 10, 1)) +
+    labs(x = NULL, y = "IQ")
+
+
+p_iq_histogram <- TwoGroupIQ %>%
+   ggplot(aes(x = IQ, fill = Group)) +
+      geom_histogram(binwidth = 1, color = "white") +
+      scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) +
+      scale_x_continuous(breaks = seq(1, 10, 1)) +
+      labs(y = "Count", x = "IQ") +
+      facet_wrap(~ Group, nrow = 2) +
+      theme(panel.grid.major.x = element_blank())
+
+p_iq_dotplot <- TwoGroupIQ %>%
+   ggplot(aes(x = IQ, fill = Group)) +
+      geom_dotplot(binwidth = 1) + facet_wrap(~Group) +
+      scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) +
+      # scale_x_continuous(breaks = seq(1, 10, 1)) +
+      scale_y_continuous(breaks = NULL) +
+      labs(y = "Count", x = "IQ") +
+      facet_wrap(~ Group, nrow = 2) +
+      theme(panel.grid.major.x = element_blank())
+
+p_iq_ridges <- TwoGroupIQ %>%
+   ggplot(aes(x = IQ, y = fct_rev(Group), fill = Group)) +
+     stat_density_ridges(quantile_lines = TRUE,
+                       quantiles = 2,
+                       scale = 3, color = "white") +
+      scale_fill_manual(values = c("#0288b7", "#a90010"), guide = FALSE) +
+      scale_x_continuous(breaks = seq(0, 10, 2)) +
+      labs(x = "IQ", y = NULL,
+         subtitle = "White line shows median rating")
+
+(p_iq_boxplot | p_iq_dotplot) /
+    p_iq_ridges +
+  plot_annotation(title = "IQ difference",
+                  subtitle = "Smart drug vs placebo",
+                  theme = theme(plot.title = element_text(face = "bold",
+                                                          size = rel(1.5))))
+```
+
+---
+# T-Test
+
+```{r, include = TRUE, eval = FALSE}
+t.test(IQ ~ Group,
+       data = TwoGroupIQ, var.equal = TRUE)
+```
+```r
+	Two Sample t-test
+
+data:  IQ by Group
+* t = -1.5587, df = 87, p-value = 0.1227
+alternative hypothesis: true difference in means is not equal to 0
+95 percent confidence interval:
+ -3.544155  0.428653
+sample estimates:
+  mean in group Placebo mean in group SmartDrug
+               100.3571                101.9149
+
+```
+
+```{r, include = TRUE, eval = FALSE}
+t.test(IQ ~ Group,
+       data = TwoGroupIQ, var.equal = FALSE)
+```
+
+```r
+	Welch Two Sample t-test
+
+data:  IQ by Group
+* t = -1.6222, df = 63.039, p-value = 0.1098
+alternative hypothesis: true difference in means is not equal to 0
+95 percent confidence interval:
+ -3.4766863  0.3611848
+sample estimates:
+  mean in group Placebo mean in group SmartDrug
+               100.3571                101.9149
+```
+
+
+---
+# T-Test as linear model
+
+A t-test is really just a general linear model<sup>1</sup>:
+
+$$ Y = \alpha + \beta X + \epsilon$$
+$$ \epsilon \sim N(0, \sigma^2) $$
+
+where $X$ is an indicator variable.
+
+.f-.footnote[
+[1] This assumes equal variances.
+]
+
+
+```{r echo=TRUE}
+fit_ols <- lm(IQ ~ Group,
+              data = TwoGroupIQ)
+```
+
+which can be read as:
+
+$$ IQ = Placebo + \beta \cdot SmartDrug  + \epsilon$$
+$$ \epsilon \sim N(0, \sigma^2) $$
+
+The $\beta$ parameter therefore represents the difference between groups.
+
+---
+```r
+fit_ols <- lm(IQ ~ Group,
+              data = TwoGroupIQ)
+
+Call:
+lm(formula = IQ ~ Group, data = TwoGroupIQ)
+
+Residuals:
+     Min       1Q   Median       3Q      Max
+-19.9149  -0.9149   0.0851   1.0851  22.0851
+
+Coefficients:
+               Estimate Std. Error t value Pr(>|t|)
+(Intercept)    100.3571     0.7263 138.184   <2e-16 ***
+* GroupSmartDrug   1.5578     0.9994   1.559    0.123
+---
+Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+Residual standard error: 4.707 on 87 degrees of freedom
+Multiple R-squared:  0.02717,	Adjusted R-squared:  0.01599
+F-statistic:  2.43 on 1 and 87 DF,  p-value: 0.1227
+```
+
+
+---
+# Generative model
+
+.pull-left[
+- Linear regression model is as a probabilistic model
+
+- The graph on the right shows the dependencies among the random variables
+
+-  $\alpha$ is our expectation for the placebo group, $\beta$ is our expectation for the difference in means. $\sigma$ is the variance of the outcome.
+]
+
+.pull-right[
+![](figures/graphical-model-1.png)
+]
+
+
+---
+Software
+
+- [JASP](https://jasp-stats.org)
+- [Stan](https://mc-stan.org)
+- [brms](https://github.com/paul-buerkner/brms): R package for Bayesian generalized multivariate non-linear multilevel models using Stan
+- [rstanarm](http://mc-stan.org/rstanarm/): Bayesian Applied Regression Modeling via Stan
+- [PyMC3](https://docs.pymc.io)
+- [Turing](http://turing.ml): a universal probabilistic programming language with an intuitive modelling interface, composable probabilistic inference, and computational scalability.
+
+---
+# Inference
+## Stan
+
+```
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+}
+parameters {
+  real alpha;
+  real beta;
+  real<lower=0> sigma;
+}
+model {
+  sigma ~ cauchy(0, 2.5);
+  alpha ~ normal(100, 15);
+  beta ~ normal(0, 10);
+  y ~ normal(alpha + beta * x, sigma);
+}
+```
+
+
+---
+# Inference
+## brms
+
+
+```{r, eval = TRUE, include = TRUE}
+fit_eqvar <- brm(IQ ~ Group,
+    data = TwoGroupIQ,
+    file = here::here("models/fitiq-eqvar"))
+```
+
+```r
+ Family: gaussian
+  Links: mu = identity; sigma = identity
+Formula: IQ ~ Group
+   Data: TwoGroupIQ (Number of observations: 89)
+Samples: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;
+         total post-warmup samples = 4000
+
+Population-Level Effects:
+               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
+Intercept        100.36      0.72    98.91   101.75       4083 1.00
+* GroupSmartDrug   1.56      1.00    -0.37     3.56       4039 1.00
+
+Family Specific Parameters:
+      Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
+sigma     4.76      0.36     4.12     5.53       3504 1.00
+
+Samples were drawn using sampling(NUTS). For each parameter, Eff.Sample
+is a crude measure of effective sample size, and Rhat is the potential
+scale reduction factor on split chains (at convergence, Rhat = 1).
+```
+
+
+
+---
+```{r}
+fit_eqvar %>%
+  gather_draws(b_GroupSmartDrug) %>%
+  ggplot(aes(y = .variable, x = .value)) +
+  geom_halfeyeh()
+```
+
+
+---
+# Model checking
+```{r}
+TwoGroupIQ %>%
+    data_grid(Group) %>%
+    add_predicted_draws(fit_eqvar) %>%
+    ggplot(aes(x = .prediction, y = Group)) +
+    geom_density_ridges(fill = "steelblue")
+```
+
+---
+# Model revision
+
+```{r}
+fit_robust <- brm(bf(IQ ~ 0 + Group, sigma ~ Group),
+    family = student,
+    data = TwoGroupIQ,
+    prior = c(set_prior("normal(100, 10)", class = "b"),
+             set_prior("cauchy(0, 1)", class = "b", dpar = "sigma"),
+             set_prior("exponential(1.0/29)", class = "nu")),
+    cores = parallel::detectCores(),
+    file = here::here("models/fitiq-robust"))
+```
+```{r}
+fit_robust
+```
+
+```{r}
+marginal_effects(fit_robust)
+```
+
+```{r}
+h <- hypothesis(fit_robust, "GroupSmartDrug > GroupPlacebo")
+plot(h)
+```
+
+``````{r}
+posterior <- fit_robust %>%
+    gather_draws(b_GroupSmartDrug, b_GroupPlacebo) %>%
+    compare_levels(.value, by = .variable)
+```
+
+```{r}
+posterior %>%
+    ggplot(aes(y = .variable, x = .value)) +
+    geom_halfeyeh(fill = "Steelblue4") +
+    geom_vline(xintercept = 0, color = "white", linetype = 1, sixe = 8) +
+    scale_y_discrete(name = "") +
+    scale_x_continuous(name = "") +
+    theme_ridges()
+```
+
+```{r eval=FALSE, include=FALSE}
+posterior_2 <- fit_robust %>%
+    spread_draws(b_GroupSmartDrug, b_GroupPlacebo) %>%
+    mutate(diff = b_GroupSmartDrug - b_GroupPlacebo)
+
+posterior_2 %>%
+  ggplot(aes(x = diff)) +
+  geom_density(color = "transparent",
+               fill = "Steelblue4") +
+  geom_vline(xintercept = 0, color = "white", linetype = 1, sixe = 8) +
+  scale_y_continuous(NULL, breaks = NULL) +
+  labs(title = expression(paste("Is 0 a credible value for ", italic("c"), ".")),
+       x = NULL) +
+  theme_classic()
+```
+
+
+```{r}
+posterior %>%
+    summarise(mean = mean(diff))
+```
+
+
+# Model checking
+```{r}
+TwoGroupIQ %>%
+    data_grid(Group) %>%
+    add_predicted_draws(fit_robust) %>%
+    ggplot(aes(x = .prediction, y = Group)) +
+    geom_density_ridges(fill = "steelblue") +
+    scale_x_continuous(limits = c(70, 120))
+```
+
+---
+# Model comparison
+
+In order to check whether including the grouping factor improves our model's predictive accuracy over a model in which we assume no group difference, we can perform a model comparison.
+
+```{r}
+fit_robust_null <- brm(bf(IQ ~ 1, sigma ~ Group),
+    family = student,
+    data = TwoGroupIQ,
+    prior = c(set_prior("cauchy(0, 1)", class = "b", dpar = "sigma"),
+             set_prior("exponential(1.0/29)", class = "nu")),
+    cores = parallel::detectCores(),
+    file = here::here("models/fitiq-robust-null"))
+```
+
+
+
+---
+## LOO
+```{r}
+model_comparison <- LOO(fit_eqvar, fit_robust, fit_robust_null)
+```
+
+```{r, include = FALSE}
+save(model_comparison, file = "models/model-comparison.Rda")
+```
+
+```{r}
+model_comparison
+```
+
+
+
+---
+## Bayes factor
+For a more detailed description of Bayes factors, see [here](http://rpubs.com/awellis/bayes-factor).
+
+
+---
+```{r}
+fit_robust_bf <- brm(bf(IQ ~ 0 + intercept + Group, sigma ~ Group),
+    family = student,
+    data = TwoGroupIQ,
+    prior = c(set_prior("normal(100, 10)", class = "b", coef = "intercept"),
+              set_prior("cauchy(0, 0.707)", class = "b", coef = "GroupSmartDrug"),
+             set_prior("cauchy(0, 1)", class = "b", dpar = "sigma"),
+             set_prior("exponential(1.0/29)", class = "nu")),
+    cores = parallel::detectCores(),
+    sample_prior = TRUE,
+    # save_all_pars = TRUE,
+    file = here::here("models/fitiq-robust-bf"))
+```
+
+```{r}
+fit_robust_bridge <- brm(bf(IQ ~ 0 + intercept + Group, sigma ~ Group),
+    family = student,
+    data = TwoGroupIQ,
+    prior = c(set_prior("normal(100, 10)", class = "b", coef = "intercept"),
+              set_prior("cauchy(0, 0.707)", class = "b", coef = "GroupSmartDrug"),
+             set_prior("cauchy(0, 1)", class = "b", dpar = "sigma"),
+             set_prior("exponential(1.0/29)", class = "nu")),
+    cores = parallel::detectCores(),
+    # sample_prior = TRUE,
+    save_all_pars = TRUE,
+    file = here::here("models/fitiq-robust-bridge"))
+
+fit_robust_bridge_null <- brm(bf(IQ ~ 0 + intercept, sigma ~ Group),
+    family = student,
+    data = TwoGroupIQ,
+    prior = c(set_prior("normal(100, 10)", class = "b", coef = "intercept"),
+             set_prior("cauchy(0, 1)", class = "b", dpar = "sigma"),
+             set_prior("exponential(1.0/29)", class = "nu")),
+    cores = parallel::detectCores(),
+    # sample_prior = TRUE,
+    save_all_pars = TRUE,
+    file = here::here("models/fitiq-robust-bridge-null"))
+```
+
+
+```{r}
+BF_brms_savage = hypothesis(fit_robust_bf, hypothesis = 'GroupSmartDrug = 0')
+1/BF_brms_savage$hypothesis$Evid.Ratio
+```
+
+```{r}
+BF_brms_bridge <- bayes_factor(fit_robust_bridge, fit_robust_bridge_null)
+BF_brms_bridge$bf
+```
+
+
+
+---
+# Further reading
+
+- **Statistical Rethinking** (an introduction to applied Bayesian data analysis with lots of example code): [book website](https://xcelab.net/rm/statistical-rethinking/) and [lectures on Youtube](https://www.youtube.com/playlist?list=PLDcUM9US4XdNM4Edgs7weiyIguLSToZRI)
+
+- [brms](https://github.com/paul-buerkner/brms): R package for Bayesian generalized multivariate non-linear multilevel models using Stan
+
+- [Blog post by Jonas Lindeloev](https://rpubs.com/lindeloev/bayes_factors) on how to compute Bayes factors using various methods.
+
+- [Blog post by Matti Vuorre](https://vuorre.netlify.com/post/2017/01/02/how-to-compare-two-groups-with-robust-bayesian-estimation-using-r-stan-and-brms/#describing-the-models-underlying-the-t-tests) on how to perform a Bayesian t-test using brms
+
+- [Blog post by A. Solomon Kurz](https://solomonkurz.netlify.com/post/robust-linear-regression-with-the-robust-student-s-t-distribution/) on how to perform robust regression.
+
+- [Blog post by Andrew Heiss](https://www.andrewheiss.com/blog/2019/01/29/diff-means-half-dozen-ways/): Half a dozen frequentist and Bayesian ways to measure the difference in means in two groups.
+
+---
+
+
+---
+# References
+```{r, 'refs', results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+PrintBibliography(bib, start = 1, end = 5)
+```
+
+---
+```{r, 'refs-2', results='asis', echo=FALSE, message=FALSE, warning=FALSE}
+PrintBibliography(bib, start = 6, end = length(bib))
+```

@@ -1,0 +1,14 @@
+base
+tidyr
+dplyr
+forcats
+modelr
+purrr
+ggplot2
+ggstance
+ggridges
+patchwork
+Rcpp
+brms
+tidybayes
+RefManageR
