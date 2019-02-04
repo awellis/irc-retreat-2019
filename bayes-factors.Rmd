@@ -1,0 +1,77 @@
+---
+title: "Bayes factors"
+author: "Andrew Ellis"
+date: "04/02/2019"
+output: 
+  html_document: 
+    theme: spacelab
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Bayes factor
+
+Let's have another look at Bayes rule, only this time we make the dependency of the parameters $\mathbf{\theta}$ explicit:
+
+$$ p(\theta | D, \mathcal{M}) = \frac{p(D|\theta, \mathcal{M}) p(\theta | \mathcal{M})}{p(D | \mathcal{M})}$$
+
+where $\mathcal{M}$ refers to a specific model. The marginal likelihood $p(D | \mathcal{M})$ now gives the probability of the data, averaged over all possible parameter value under model $\mathcal{M}$.
+
+Writing out the marginal likelihood $p(D | \mathcal{M})$:
+$$ p(D | \mathcal{M}) = \int{p(D | \theta, \mathcal{M}) p(\theta|\mathcal{M})d\theta}$$
+we see that this is averaged over all possible values of $\theta$ that the model will allow.
+
+The important thing to consider here is that the model evidence will depend on what kind of predictions a model can make. This gives us a measure of complexity – **a complex model is a model that can make many predictions**.
+
+The problem with making many predictions is that most of these predictions will turn out to be false.
+
+The complexity of a model will depend on (among other things):
+
+- the number of parameters (as in frequentist model comparison)
+- the prior distributions of the model's parameters
+
+When a parameters priors are broad (uninformative), those parts of the parameter space where the likelihood is high are assigned low probability. Intuitively, by hedging one's bets, one assigns low probability to parameter values that make good predictions.
+
+All this leads to the fact that more complex model have comparatively lower marginal likelihood.
+
+Therefore, when we compare models, and we prefer models with higher marginal likelihood, we are using Ockham's razor in a principled manner.
+
+We can also write Bayes rule applied to a comparison between models (marginalized over all parameters within the model):
+
+$$ p(\mathcal{M}_1 | D) = \frac{P(D | \mathcal{M}_1) p(\mathcal{M}_1)}{p(D)}$$
+
+and
+
+$$ p(\mathcal{M}_2 | D) = \frac{P(D | \mathcal{M}_2) p(\mathcal{M}_2)}{p(D)}$$
+
+This tells us that for model $\mathcal{M_m}$, the posterior probability of the model is proportional to the marginal likelihood times the prior probability of the model.
+
+Now, one is usually less interested in absolute evidence than in relative evidence; we want to compare the predictive performance of one model over another.
+
+To do this, we simply form the ratio of the model probabilities:
+
+$$ \frac{p(\mathcal{M}_1 | D) = \frac{P(D | \mathcal{M}_1) p(\mathcal{M}_1)}{p(D)}} {p(\mathcal{M}_2 | D) = \frac{P(D | \mathcal{M}_2) p(\mathcal{M}_2)}{p(D)}}$$
+
+The term $p(D)$ cancels out, giving us:
+$$ \frac{p(\mathcal{M}_1 | D) = P(D | \mathcal{M}_1) p(\mathcal{M}_1)} {p(\mathcal{M}_2 | D) = P(D | \mathcal{M}_2) p(\mathcal{M}_2)}$$
+
+The ratio $\frac{p(\mathcal{M}_1)}{p(\mathcal{M}_2)}$ is called the **prior odds**, and the ratio $\frac{p(\mathcal{M}_1 | D)}{p(\mathcal{M}_2 | D)}$ is therefore the **posterior odds**.
+
+We are particulary interested in the ratio of the marginal likelihoods:
+
+$$\frac{P(D | \mathcal{M}_1)}{P(D | \mathcal{M}_2)}$$
+
+This is the <span style="color:firebrick">Bayes factor</span>, and it can be interpreted as the change from prior odds to posterior odds that is indicated by the data.
+
+If we consider the prior odds to be $1$, i.e. we do not favour one model over another a priori, then we are only interested in the Bayes factor. We write this as:
+
+$$ BF_{12} = \frac{P(D | \mathcal{M}_1)}{P(D | \mathcal{M}_2)}$$
+
+Here, $BF_{12}$ indicates the extent to which the data support model $\mathcal{M}_1$ over model $\mathcal{M}_2$.
+
+As an example, if we obtain a $BF_{12} = 5$, this mean that the data are 5 times more likely to have occured under model 1 than under model 2. Conversely, if $BF_{12} = 0.2$, then the data are 5 times more likely to have occured under model 2.
+
+The following [classification](http://en.wikipedia.org/wiki/Bayes_factor#Interpretation) is sometimes used, although it is unnessecary.
